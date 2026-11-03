@@ -9,6 +9,9 @@ from thithi.mcp_servers import local_llm
 def test_wf1_over_http(monkeypatch, tmp_path):
     monkeypatch.setenv("THITHI_AUDIT_LOG", str(tmp_path / "audit.jsonl"))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("PRIVACY_URL", raising=False)
+    monkeypatch.setenv("THITHI_ENV", "dev")
+    monkeypatch.setenv("THITHI_NER", "off")
     monkeypatch.setattr(local_llm, "_chat", lambda system, user, json_mode=False: "Gửi đơn trước 3 ngày [QC-NP-01]")
     app_module.get_orchestrator.cache_clear()
     client = TestClient(app_module.app)

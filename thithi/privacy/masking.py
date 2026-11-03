@@ -1,42 +1,23 @@
-"""Thay PII bằng token ổn định trong một trace, và đổi ngược khi kết quả quay về."""
+"""Che hoặc đổi thông tin nhạy cảm thành giá trị thay thế, và tái tạo khi kết quả quay về.
+
+Chạy trong dịch vụ Privacy Vault trên máy AI local. Ánh xạ nằm trong `Vault`, không bao giờ rời máy đó.
+"""
 
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from typing import Any
 
 from .pii import KeywordDetector, PiiScanner
+from .surrogates import SurrogatePolicy
+from .vault import InMemoryVault, TraceVault
 
 TOKEN_RE = re.compile(r"<([A-Z_]+)_(\d{2,})>")
 
 
-class TokenVault:
-    """Bảng ánh xạ token ↔ giá trị thật của một trace.
-
-    Bản này giữ trong bộ nhớ. Triển khai thật: Redis, mã hoá khi lưu, hết hạn sau 24 giờ.
-    Bảng không bao giờ rời mạng nội bộ.
-    """
-
-    def __init__(self) -> None:
-        self._by_value: dict[str, str] = {}
-        self._by_token: dict[str, str] = {}
-        self._counters: dict[str, int] = defaultdict(int)
-
-    def token_for(self, kind: str, value: str) -> str:
-        if value in self._by_value:
-            return self._by_value[value]
-        self._counters[kind] += 1
-        token = f"<{kind}_{self._counters[kind]:02d}>"
-        self._by_value[value] = token
-        self._by_token[token] = value
-        return token
-
-    def value_for(self, token: str) -> str | None:
-        return self._by_token.get(token)
-
-    def __len__(self) -> int:
-        return len(self._by_token)
+def new_trace_vault(policy: SurrogatePolicy | None = None) -> TraceVault:
+    """Kho tạm trong bộ nhớ cho một trace (test, công cụ dòng lệnh)."""
+    return InMemoryVault(policy).for_trace("local")
 
 
 class LeakError(RuntimeError):
@@ -70,11 +51,8 @@ class Masker:
         self.sensitive_keys = SENSITIVE_KEYS if sensitive_keys is None else sensitive_keys
         self.ner = ner  # vd. LocalLlmNer; None = chỉ dùng regex, danh bạ và tên cột
 
-    def mask_payload(self, payload: Any, vault: TokenVault) -> Any:
-        """Điểm vào của Gateway: chạy NER một lần trên mọi chuỗi của payload rồi che.
-
-        Lỗi NER (`NerUnavailable`) được để nổi lên để Gateway chặn payload.
-        """
+    def mask_payload(self, payload: Any, vault: TraceVault) -> Any:
+        """Chạy NER một lần trên mọi chuỗi của payload rồi che. Lỗi NER được để nổi lên để chặn."""
         scanner = self.scanner
         if self.ner is not None:
             entities = self.ner.extract("\n".join(_strings(payload)))
@@ -82,16 +60,19 @@ class Masker:
                 scanner = scanner.with_extra(KeywordDetector(entities))
         return self.mask_obj(payload, vault, scanner)
 
-    def mask(self, text: str, vault: TokenVault, scanner: PiiScanner | None = None) -> str:
+    def mask(self, text: str, vault: TraceVault, scanner: PiiScanner | None = None) -> str:
+        known = vault.mapping()  # giá trị thay thế đã phát hành: không che lại lần nữa
         out, last = [], 0
         for span in (scanner or self.scanner).scan(text):
+            if span.text in known:
+                continue
             out.append(text[last : span.start])
-            out.append(vault.token_for(span.kind, span.text))
+            out.append(vault.surrogate_for(span.kind, span.text))
             last = span.end
         out.append(text[last:])
         return "".join(out)
 
-    def mask_obj(self, obj: Any, vault: TokenVault, scanner: PiiScanner | None = None) -> Any:
+    def mask_obj(self, obj: Any, vault: TraceVault, scanner: PiiScanner | None = None) -> Any:
         if isinstance(obj, str):
             return self.mask(obj, vault, scanner)
         if isinstance(obj, dict):
@@ -99,7 +80,7 @@ class Masker:
             for k, v in obj.items():
                 kind = self.sensitive_keys.get(k)
                 if kind and v is not None and not isinstance(v, (dict, list)):
-                    out[k] = vault.token_for(kind, str(v))
+                    out[k] = vault.surrogate_for(kind, str(v))
                 else:
                     out[k] = self.mask_obj(v, vault, scanner)
             return out
@@ -107,18 +88,24 @@ class Masker:
             return [self.mask_obj(v, vault, scanner) for v in obj]
         return obj
 
-    def verify_clean(self, text: str) -> None:
-        """Quét lần hai trên bản đã che; còn sót thì chặn."""
-        leftovers = self.scanner.scan(TOKEN_RE.sub("", text))
+    def verify_clean(self, text: str, vault: TraceVault | None = None) -> None:
+        """Quét lần hai trên bản đã che (bỏ qua giá trị thay thế đã phát hành); còn sót thì chặn."""
+        for surrogate in sorted((vault.mapping() if vault else {}), key=len, reverse=True):
+            text = text.replace(surrogate, " ")
+        leftovers = self.scanner.scan(TOKEN_RE.sub(" ", text))
         if leftovers:
             kinds = sorted({s.kind for s in leftovers})
             raise LeakError(f"Còn sót PII sau khi che: {', '.join(kinds)}")
 
     @staticmethod
-    def unmask(text: str, vault: TokenVault) -> str:
-        return TOKEN_RE.sub(lambda m: vault.value_for(m.group(0)) or m.group(0), text)
+    def unmask(text: str, vault: TraceVault) -> str:
+        mapping = vault.mapping()
+        if not mapping:
+            return text
+        pattern = re.compile("|".join(re.escape(k) for k in sorted(mapping, key=len, reverse=True)))
+        return pattern.sub(lambda m: mapping[m.group(0)], text)
 
-    def unmask_obj(self, obj: Any, vault: TokenVault) -> Any:
+    def unmask_obj(self, obj: Any, vault: TraceVault) -> Any:
         if isinstance(obj, str):
             return self.unmask(obj, vault)
         if isinstance(obj, dict):

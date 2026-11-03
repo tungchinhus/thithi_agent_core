@@ -14,8 +14,6 @@ from thithi.orchestrator.registry import default_registry
 from thithi.orchestrator.runner import Orchestrator, RequestState
 
 from .labels import LabelPolicy
-from .masking import Masker
-from .ner import LocalLlmNer
 from .service import AuditLog, Gateway
 
 app = FastAPI(title="THITHI Agentic Core Gateway")
@@ -25,16 +23,28 @@ app = FastAPI(title="THITHI Agentic Core Gateway")
 def get_orchestrator() -> Orchestrator:
     from thithi.cloud.brain import ClaudeBrain
 
-    # Mặc định bật NER bằng LLM local. Chỉ tắt (THITHI_NER=off) khi dev không có GPU.
-    ner = None if os.environ.get("THITHI_NER", "local_llm") == "off" else LocalLlmNer()
     gateway = Gateway(
         LabelPolicy.from_yaml(os.environ.get("THITHI_LABELS", "config/labels.yaml")),
-        masker=Masker(ner=ner),
+        privacy=_privacy_client(),
         audit=AuditLog(os.environ.get("THITHI_AUDIT_LOG", "data/audit.jsonl")),
     )
     brain = ClaudeBrain() if os.environ.get("ANTHROPIC_API_KEY") else None
     agents = load_agents(os.environ.get("THITHI_AGENTS", "agents"))
     return Orchestrator(gateway, brain, agents, default_registry())
+
+
+def _privacy_client():
+    """Production: bắt buộc gọi Privacy Vault trên máy AI local. Chỉ dev mới chạy engine cùng tiến trình."""
+    url = os.environ.get("PRIVACY_URL")
+    if url:
+        from thithi.privacy.client import HttpPrivacyClient
+
+        return HttpPrivacyClient(url, os.environ.get("PRIVACY_SERVICE_TOKEN", ""))
+    if os.environ.get("THITHI_ENV") == "dev":
+        from thithi.privacy.engine import build_engine
+
+        return build_engine()
+    raise RuntimeError("Thiếu PRIVACY_URL: Gateway phải dùng Privacy Vault chạy trên máy AI local")
 
 
 def current_user(x_user_id: str = Header(...)) -> str:
