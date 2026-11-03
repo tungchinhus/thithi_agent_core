@@ -1,0 +1,33 @@
+# Toàn bộ chạy trong mạng nội bộ. Chỉ service `gateway` được tường lửa cho phép gọi ra
+# api.anthropic.com (HTTPS chiều ra). Không mở cổng nào từ internet vào.
+services:
+  gateway:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    env_file: ../.env
+    ports: ["8080:8080"]
+    volumes: ["../data:/app/data"]
+    depends_on: [ai-local, redis]
+    networks: [internal, egress]
+
+  ai-local:
+    image: vllm/vllm-openai:latest
+    # Đổi --model sau khi chạy bộ thử 50 câu hỏi tiếng Việt và chọn mô hình.
+    command: ["--model", "${LOCAL_LLM_HF_MODEL:-Qwen/Qwen2.5-14B-Instruct-AWQ}", "--served-model-name", "local-model", "--max-model-len", "16384"]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    volumes: ["hf-cache:/root/.cache/huggingface"]
+    networks: [internal]
+
+  # Bảng ánh xạ token (sẽ thay TokenVault trong bộ nhớ) và hàng đợi Worker.
+  redis:
+    image: redis:7-alpine
+    networks: [internal]
+
+networks:
+  internal: { internal: true }
+  egress: {}
+
+volumes:
+  hf-cache: {}

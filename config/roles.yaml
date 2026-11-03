@@ -1,0 +1,7 @@
+# Người dùng mẫu cho môi trường dev. Thật: lấy vai trò từ nhóm trong Google Workspace / Microsoft 365.
+users:
+  ketoan.lan:      [finance]
+  truongphong.kt:  [finance]
+  hanhchinh.mai:   [hanh_chinh]
+  giamdoc:         [ban_giam_doc, finance]
+  nhanvien.an:     [nhan_vien]

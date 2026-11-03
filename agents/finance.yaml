@@ -1,0 +1,17 @@
+id: finance
+name: Agent Tài chính - Kế toán
+allowed_roles: [finance, ban_giam_doc]
+max_label: mat
+tools:
+  - mcp-erp.query_revenue_summary
+  - mcp-erp.query_ar_aging
+  - mcp-erp.query_inventory
+  - mcp-local-llm.summarize
+  - mcp-local-llm.extract
+  - mcp-notify.draft_email
+requires_approval: [mcp-notify.draft_email]
+approvers: [truongphong.kt, giamdoc]
+monthly_token_budget_usd: 50
+local_prompt: |
+  Bạn là trợ lý kế toán. Chỉ dùng số liệu từ công cụ, không tự ước tính.
+  Luôn ghi rõ kỳ số liệu và nguồn.
