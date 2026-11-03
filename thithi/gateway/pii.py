@@ -77,6 +77,12 @@ class PiiScanner:
     def __init__(self, extra: list[Detector] | None = None):
         self.detectors: list[Detector] = [RegexDetector(), *(extra or [])]
 
+    def with_extra(self, *detectors: Detector) -> "PiiScanner":
+        """Bản sao có thêm bộ nhận diện, dùng cho một lần che (vd. tên do NER tìm ra)."""
+        clone = PiiScanner()
+        clone.detectors = [*self.detectors, *detectors]
+        return clone
+
     def scan(self, text: str) -> list[Span]:
         spans = [s for d in self.detectors for s in d.find(text)]
         # Giữ đoạn dài nhất khi chồng lấn

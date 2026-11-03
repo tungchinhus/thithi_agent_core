@@ -9,6 +9,7 @@ from typing import Any
 
 from .labels import CloudPolicy, LabelPolicy
 from .masking import Masker, TokenVault
+from .ner import NerUnavailable
 
 
 class Blocked(RuntimeError):
@@ -48,7 +49,11 @@ class Gateway:
             self.audit.log(trace_id, "blocked", purpose=purpose, label=cls.label.name, sources=sources)
             raise Blocked(f"Dữ liệu nhãn {cls.label.name} không được gửi lên cloud")
         if cls.allow_cloud != CloudPolicy.RAW:
-            payload = self.masker.mask_obj(payload, self.vault(trace_id))
+            try:
+                payload = self.masker.mask_payload(payload, self.vault(trace_id))
+            except NerUnavailable as exc:
+                self.audit.log(trace_id, "ner_blocked", purpose=purpose, error=str(exc))
+                raise Blocked(f"{exc}. Không gửi lên cloud khi chưa che được tên riêng.") from exc
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
         try:
             self.masker.verify_clean(text)
