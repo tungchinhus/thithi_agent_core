@@ -1,6 +1,6 @@
 # Bộ mẫu GIẢ để chạy trong CI (không có dữ liệu thật). Bộ mẫu thật của công ty để trong data/ trên máy AI local.
 # Các mẫu ở đây chỉ gồm PII nhận diện được bằng regex; tên người/tổ chức cần NER thật, chạy trên máy AI local.
-{"id": "sdt-di-dong", "text": "Gọi lại số 0912 345 678 trước 5 giờ chiều.", "pii": ["0912 345 678"]}
+{"id": "sdt-di-dong", "text": "Gọi lại số 0912 345 678 trước 5 giờ chiều.", "pii": ["0912 345 678"], "replies": ["Đã gọi {0:thuong} lúc 4 giờ", "Số {0:tron} không nghe máy"]}
 {"id": "sdt-co-dinh", "text": "Tổng đài văn phòng: 024 3826 1234, máy lẻ 12.", "pii": ["024 3826 1234"], "keep": ["máy lẻ 12"]}
 {"id": "sdt-quoc-te", "text": "Liên hệ +84 987.654.321 qua Zalo.", "pii": ["+84 987.654.321"]}
 {"id": "email", "text": "Gửi hoá đơn về ketoan.ncc@vidu-ncc.com.vn giúp em.", "pii": ["ketoan.ncc@vidu-ncc.com.vn"]}
@@ -10,9 +10,9 @@
 {"id": "stk", "text": "Chuyển khoản vào STK 1903 4567 8901 23 tại ngân hàng.", "pii": ["1903 4567 8901 23"]}
 {"id": "stk-chu", "text": "Số tài khoản: 19034567890123, chủ tài khoản là công ty.", "pii": ["19034567890123"]}
 {"id": "tk-so", "text": "Tài khoản số 0071000123456 dùng cho lương.", "pii": ["0071000123456"]}
-{"id": "tien-dong", "text": "Còn nợ 125.000.000 đ, hạn chót cuối tháng.", "pii": ["125.000.000 đ"]}
+{"id": "tien-dong", "text": "Còn nợ 125.000.000 đ, hạn chót cuối tháng.", "pii": ["125.000.000 đ"], "replies": ["Khách hứa trả {0:thuong} vào cuối tháng"]}
 {"id": "tien-trieu", "text": "Tạm ứng 15 triệu đồng cho chuyến công tác.", "pii": ["15 triệu đồng"]}
 {"id": "tien-ty", "text": "Doanh thu quý đạt 2,5 tỷ.", "pii": ["2,5 tỷ"]}
 {"id": "tien-k", "text": "Phụ cấp ăn trưa 500k mỗi tháng.", "pii": ["500k"]}
-{"id": "gop", "text": "Anh Nam (nam.tran@vidu.vn, 0987654321) chuyển 92.500.000 VND vào TK 123456789.", "pii": ["nam.tran@vidu.vn", "0987654321", "92.500.000 VND", "123456789"]}
+{"id": "gop", "text": "Anh Nam (nam.tran@vidu.vn, 0987654321) chuyển 92.500.000 VND vào TK 123456789.", "pii": ["nam.tran@vidu.vn", "0987654321", "92.500.000 VND", "123456789"], "replies": ["Anh Nam chuyển {2:tron}, xác nhận qua {0}"]}
 {"id": "khong-pii", "text": "Ban giám đốc họp lúc 9 giờ tại phòng 301, mã hoá đơn HD0912.", "pii": [], "keep": ["Ban giám đốc", "phòng 301", "HD0912"]}

@@ -59,7 +59,7 @@ case "${1:-}" in
     gateway python -m thithi.privacy.monitor --url http://privacy-vault:8090 --state /app/data/monitor-state.json
     ;;
   eval)
-    [ -f "$SAMPLES" ] || { echo "Chưa có bộ mẫu $SAMPLES" >&2; exit 1; }
+    [ -f "$SAMPLES" ] || { echo "Chưa có bộ mẫu $SAMPLES. Chép config/pii_samples.example.jsonl rồi điền dữ liệu thật." >&2; exit 1; }
     # data/vault được mount vào /app/vault; bộ mẫu chứa dữ liệu thật nên chỉ nằm ở đó
     if ! vault python -m thithi.privacy.evaluate "/app/vault/$(basename "$SAMPLES")"; then
       notify "Nghiệm thu PII trên bộ mẫu thất bại (còn rò rỉ hoặc tái tạo sai). Xem journalctl -u thithi-vault-eval."

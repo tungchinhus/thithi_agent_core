@@ -1,0 +1,16 @@
+# MẪU để phòng Kế toán điền bộ nghiệm thu thật. Mọi tên, số ở đây đều là GIẢ.
+# Bộ thật: chép file này thành data/vault/pii_samples.jsonl trên máy AI local (quyền 600), thay bằng ~200 đoạn
+# văn bản thật, rồi chạy: scripts/vault.sh eval. Không commit, không gửi bộ thật đi đâu.
+#
+# Mỗi dòng là một JSON (một đoạn văn bản), dòng bắt đầu bằng # bị bỏ qua:
+#   text    : đoạn văn bản nguyên văn (email, ghi chú công nợ, đoạn hợp đồng, tin nhắn...)
+#   pii     : MỌI chuỗi phải che, chép đúng như trong text (tên người, công ty, địa chỉ, SĐT, email, số tiền, STK...)
+#   keep    : chuỗi KHÔNG được che (từ thường dễ bị che nhầm: "Ban giám đốc", "Hà Nội", mã hoá đơn...)
+#   replies : câu Claude có thể viết lại, {i} trỏ tới pii[i]: {0} nguyên giá trị thay thế, {0:ten} chỉ tên gọi,
+#             {0:thuong} viết thường, {0:so} chỉ chữ số, {0:tron} token bỏ ngoặc. Mỗi mẫu 0–3 câu là đủ.
+# Nên có: ~40% email/tin nhắn khách hàng, ~30% ghi chú công nợ, ~20% đoạn hợp đồng, ~10% chứng từ thanh toán;
+# ít nhất 20 đoạn chép thẳng từ Word/macOS (dấu tiếng Việt dạng tổ hợp).
+{"id": "email-01", "text": "Chào chị Nguyễn Thị Hồng Nhung, bên Công ty TNHH Vạn Lộc xin xác nhận đã nhận hoá đơn HD1024. Mọi thắc mắc chị gọi 0987 111 222.", "pii": ["Nguyễn Thị Hồng Nhung", "Công ty TNHH Vạn Lộc", "0987 111 222"], "keep": ["HD1024"], "replies": ["Đề nghị chị {0:ten} xác nhận lại với {1}.", "Gọi lại số {2:so} trong hôm nay."]}
+{"id": "cong-no-01", "text": "Khách Cửa hàng Thanh Bình còn nợ 48.500.000 đ, quá hạn 37 ngày. Anh Đỗ Văn Hải hẹn trả trước 15/11.", "pii": ["Cửa hàng Thanh Bình", "48.500.000 đ", "Đỗ Văn Hải"], "keep": ["37 ngày", "15/11"], "replies": ["Nhắc anh {2:ten} khoản {1:thuong} trước 15/11."]}
+{"id": "hop-dong-01", "text": "Bên B: Công ty CP Đại Phát, MST: 0109876543, trụ sở 25 Nguyễn Trãi, Thanh Xuân, Hà Nội, đại diện ông Lê Minh Tuấn.", "pii": ["Công ty CP Đại Phát", "0109876543", "25 Nguyễn Trãi, Thanh Xuân", "Lê Minh Tuấn"], "keep": ["Bên B"]}
+{"id": "chung-tu-01", "text": "Chuyển khoản 12 triệu cho chị Phan Thu Trang, STK 0451 0003 21987 tại Vietcombank, nội dung tạm ứng công tác.", "pii": ["12 triệu", "Phan Thu Trang", "0451 0003 21987"], "keep": ["Vietcombank", "tạm ứng công tác"], "replies": ["Đã chuyển {0:tron} cho chị {1:ten}."]}

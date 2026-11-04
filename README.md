@@ -74,7 +74,7 @@ scripts/vault.sh rotate-key          # xoay khoá kho ánh xạ (dừng Vault v�
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 86 test, không cần API key hay GPU
+pytest -q                                   # 89 test, không cần API key hay GPU
 
 cp .env.example .env                        # điền ANTHROPIC_API_KEY, LOCAL_LLM_URL
 THITHI_ENV=dev THITHI_NER=off uvicorn thithi.gateway.app:app --port 8080   # dev: Vault chạy cùng tiến trình
@@ -89,14 +89,14 @@ python -m thithi.workflows.weekly_report --user giamdoc
 
 Privacy Vault chạy riêng trên máy AI local: `uvicorn thithi.privacy.api:app --port 8090`. Biến môi trường của Vault nằm trong `vault.env` (mẫu: `vault.env.example`), tách khỏi `.env` của Gateway để khoá kho ánh xạ không bao giờ nằm trên Gateway.
 
-Nghiệm thu Privacy Vault trên bộ mẫu PII (JSONL, mỗi dòng có `text`, `pii` phải che, `keep` không được che):
+Nghiệm thu Privacy Vault trên bộ mẫu PII (JSONL, mỗi dòng có `text`, `pii` phải che, `keep` không được che, `replies` là câu Claude có thể viết lại; mẫu và hướng dẫn điền: `config/pii_samples.example.jsonl`):
 
 ```bash
 python -m thithi.privacy.evaluate data/pii_samples.jsonl     # trên máy AI local, NER thật
 THITHI_ENV=dev THITHI_NER=off python -m thithi.privacy.evaluate tests/data/pii_samples.jsonl   # bộ mẫu giả, chỉ regex
 ```
 
-Lệnh in độ phủ (recall), số chuỗi bị che nhầm và mẫu nào rò rỉ (chỉ in chỉ số, không in giá trị thật); trả mã lỗi 1 nếu còn rò rỉ.
+Lệnh in độ phủ (recall), số chuỗi bị che nhầm, tỉ lệ tái tạo đúng khi Claude viết lại, thời gian che/tái tạo (trung vị, p95) và mẫu nào rò rỉ (chỉ in chỉ số, không in giá trị thật); trả mã lỗi 1 nếu còn rò rỉ.
 
 Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_servers.erp` (streamable-http).
 
