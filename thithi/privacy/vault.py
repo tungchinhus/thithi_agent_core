@@ -123,6 +123,9 @@ class SqliteVault:
     def _surrogate_for(self, trace_id: str, kind: str, value: str) -> str:
         mac = self._mac(value)
         with self._lock:
+            # Ánh xạ hết hạn không còn tái tạo được: xoá trước, để không trả lại giá trị thay thế "chết"
+            # và không vướng khoá chính khi cấp lại.
+            self._db.execute("DELETE FROM entries WHERE trace_id = ? AND expires_at <= ?", (trace_id, time.time()))
             row = self._db.execute(
                 "SELECT surrogate FROM entries WHERE trace_id = ? AND value_mac = ?", (trace_id, mac)
             ).fetchone()
@@ -147,9 +150,10 @@ class SqliteVault:
             return surrogate
 
     def _mapping(self, trace_id: str) -> dict[str, str]:
-        rows = self._db.execute(
-            "SELECT surrogate, value_enc FROM entries WHERE trace_id = ? AND expires_at > ?", (trace_id, time.time())
-        ).fetchall()
+        with self._lock:  # một kết nối SQLite dùng chung cho nhiều luồng của FastAPI: phải khoá cả khi đọc
+            rows = self._db.execute(
+                "SELECT surrogate, value_enc FROM entries WHERE trace_id = ? AND expires_at > ?", (trace_id, time.time())
+            ).fetchall()
         return {s: self._fernet.decrypt(enc).decode() for s, enc in rows}
 
     def purge(self, trace_id: str) -> None:

@@ -63,7 +63,7 @@ class Approval(BaseModel):
     approved: bool
 
 
-def _view(state: RequestState, orch: Orchestrator) -> dict:
+def _view(state: RequestState, orch: Orchestrator, viewer: str) -> dict:
     gw = orch.gateway
     return {
         "trace_id": state.trace_id,
@@ -76,14 +76,19 @@ def _view(state: RequestState, orch: Orchestrator) -> dict:
             if state.status == "waiting_approval" and state.plan
             else None
         ),
-        "results": [gw.inbound(state.trace_id, r.model_dump()) for r in state.results],
+        # Chỉ đường lai mới có ánh xạ; đường thuần local không gọi Vault.
+        "results": (
+            gw.inbound(state.trace_id, [r.model_dump() for r in state.results], actor=viewer)
+            if state.route == "hybrid" and state.results
+            else [r.model_dump() for r in state.results]
+        ),
     }
 
 
 @app.post("/v1/requests")
 def create_request(body: NewRequest, user: str = Depends(current_user), orch: Orchestrator = Depends(get_orchestrator)):
     state = orch.submit(user, roles_of(user), body.agent, body.text)
-    return _view(state, orch)
+    return _view(state, orch, user)
 
 
 @app.get("/v1/requests/{trace_id}")
@@ -91,7 +96,7 @@ def get_request(trace_id: str, user: str = Depends(current_user), orch: Orchestr
     state = orch.requests.get(trace_id)
     if state is None or (state.user_id != user and "ban_giam_doc" not in roles_of(user)):
         raise HTTPException(404, "Không tìm thấy")
-    return _view(state, orch)
+    return _view(state, orch, user)
 
 
 @app.post("/v1/approvals/{trace_id}/{step_id}")
@@ -105,7 +110,7 @@ def approve(trace_id: str, step_id: int, body: Approval, user: str = Depends(cur
         raise HTTPException(403, str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return _view(state, orch)
+    return _view(state, orch, user)
 
 
 @app.get("/healthz")

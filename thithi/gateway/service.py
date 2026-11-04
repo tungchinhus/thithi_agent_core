@@ -62,6 +62,8 @@ class Gateway:
         self.audit.log(trace_id, "outbound", purpose=purpose, label=cls.label.name, payload=text)
         return text
 
-    def inbound(self, trace_id: str, value: Any) -> Any:
-        """Nhờ Privacy Vault tái tạo giá trị thật trước khi trả cho người dùng trong mạng nội bộ."""
-        return self.privacy.unmask(trace_id, value)
+    def inbound(self, trace_id: str, value: Any, actor: str | None = None) -> Any:
+        """Nhờ Privacy Vault tái tạo giá trị thật trước khi trả cho người dùng trong mạng nội bộ.
+
+        `actor` là người dùng nhận dữ liệu thật; Vault ghi vào nhật ký truy cập của nó."""
+        return self.privacy.unmask(trace_id, value, actor=actor)

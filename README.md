@@ -22,7 +22,10 @@ Mọi việc chạm tới giá trị thật đều nằm trong dịch vụ **Pri
 2. **Che hoặc đổi** (`config/privacy.yaml`): `token` → `<KH_01>`; `pseudonym` → giá trị giả trông như thật (`Hoàng Minh Khôi`, `0900 000 001`, `lienhe01@example.vn`). Số tiền, CCCD, STK, MST luôn dùng token.
 3. **Lưu ánh xạ**: SQLite, giá trị thật mã hoá Fernet, chỉ mục bằng HMAC (file CSDL không chứa giá trị thật đọc được), tự xoá sau `ttl_hours`.
 4. **Quét lần hai** rồi mới trả bản đã che cho Gateway.
-5. **Tái tạo**: khi kết quả quay về, chỉ Vault đổi giá trị thay thế về giá trị thật.
+5. **Tái tạo**: khi kết quả quay về, chỉ Vault đổi giá trị thay thế về giá trị thật. Tham số Claude viết vào Plan (`<KH_01>`) cũng được Vault đổi về giá trị thật trước khi công cụ local chạy.
+6. **Nhật ký truy cập** (`PRIVACY_ACCESS_LOG`): mỗi lần che, tái tạo, xoá được ghi theo `trace_id` và người dùng, không chứa giá trị.
+
+Văn bản được chuẩn hoá Unicode NFC trước khi nhận diện (tài liệu tiếng Việt từ Word/macOS hay ở dạng tổ hợp). Danh bạ tên đã biết (`known_names`, CSV `name,kind` xuất từ ERP/CRM/Entra ID) và cột nhạy cảm bổ sung (`sensitive_keys`) cấu hình trong `config/privacy.yaml`.
 
 Gateway **không giữ ánh xạ** và không khởi động nếu thiếu `PRIVACY_URL` (trừ `THITHI_ENV=dev`). Gọi Vault lỗi hay quá giờ đều bị coi là chưa che được, nên Gateway chặn.
 
@@ -48,7 +51,7 @@ Giới hạn của chế độ `pseudonym`: nếu Claude viết lại giá trị
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 47 test, không cần API key hay GPU
+pytest -q                                   # 65 test, không cần API key hay GPU
 
 cp .env.example .env                        # điền ANTHROPIC_API_KEY, LOCAL_LLM_URL
 THITHI_ENV=dev THITHI_NER=off uvicorn thithi.gateway.app:app --port 8080   # dev: Vault chạy cùng tiến trình
@@ -61,7 +64,16 @@ curl -s localhost:8080/v1/requests -H 'X-User-Id: nhanvien.an' -H 'Content-Type:
 python -m thithi.workflows.weekly_report --user giamdoc
 ```
 
-Privacy Vault chạy riêng trên máy AI local: `uvicorn thithi.privacy.api:app --port 8090` (cần `PRIVACY_VAULT_DB`, `PRIVACY_VAULT_KEY`, `PRIVACY_SERVICE_TOKEN`).
+Privacy Vault chạy riêng trên máy AI local: `uvicorn thithi.privacy.api:app --port 8090`. Biến môi trường của Vault nằm trong `vault.env` (mẫu: `vault.env.example`), tách khỏi `.env` của Gateway để khoá kho ánh xạ không bao giờ nằm trên Gateway.
+
+Nghiệm thu Privacy Vault trên bộ mẫu PII (JSONL, mỗi dòng có `text`, `pii` phải che, `keep` không được che):
+
+```bash
+python -m thithi.privacy.evaluate data/pii_samples.jsonl     # trên máy AI local, NER thật
+THITHI_ENV=dev THITHI_NER=off python -m thithi.privacy.evaluate tests/data/pii_samples.jsonl   # bộ mẫu giả, chỉ regex
+```
+
+Lệnh in độ phủ (recall), số chuỗi bị che nhầm và mẫu nào rò rỉ (chỉ in chỉ số, không in giá trị thật); trả mã lỗi 1 nếu còn rò rỉ.
 
 Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_servers.erp` (streamable-http).
 
@@ -77,4 +89,4 @@ Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_serve
 - [ ] Orchestrator gọi MCP server qua MCP client (streamable-http) thay vì gọi hàm trong cùng tiến trình.
 - [ ] Trạng thái yêu cầu lưu Redis/PostgreSQL thay vì bộ nhớ.
 - [ ] Backend ERP thật cho `mcp-erp`; Qdrant/pgvector + embedding local cho `mcp-docs`.
-- [ ] Bộ 200 mẫu PII của công ty để nghiệm thu Gateway.
+- [ ] Bộ 200 mẫu PII của công ty để nghiệm thu Gateway (công cụ đã có: `python -m thithi.privacy.evaluate`).

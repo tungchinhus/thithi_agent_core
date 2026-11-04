@@ -13,6 +13,8 @@ import json
 import re
 from typing import Callable
 
+from .pii import nfc
+
 ChatFn = Callable[..., str]
 
 KINDS = {"PERSON": "NGUOI", "ORG": "CTY", "ADDRESS": "DIA_CHI"}
@@ -58,14 +60,14 @@ class LocalLlmNer:
         if not TOKEN_RE.sub("", text).strip():
             return {}
         found: dict[str, str] = {}
-        for chunk in self._chunks(text):
+        for chunk in self._chunks(nfc(text)):
             try:
                 data = json.loads(self.chat(SYSTEM, chunk, json_mode=True))
                 entities = data["entities"]
             except Exception as exc:  # LLM local chết, quá giờ, hoặc trả về rác
                 raise NerUnavailable(f"Không nhận diện được tên riêng: {exc}") from exc
             for ent in entities:
-                value = str(ent.get("text", "")).strip()
+                value = nfc(str(ent.get("text", "")).strip())
                 kind = KINDS.get(str(ent.get("type", "")).upper())
                 # Chống LLM bịa: chỉ che chuỗi có thật trong văn bản, bỏ chuỗi quá ngắn và token sẵn có
                 if kind and len(value) >= 2 and value.lower() in chunk.lower() and not TOKEN_RE.fullmatch(value):

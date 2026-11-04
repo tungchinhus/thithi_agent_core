@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .pii import KeywordDetector, PiiScanner
+from .pii import KeywordDetector, PiiScanner, nfc
 from .surrogates import SurrogatePolicy
 from .vault import InMemoryVault, TraceVault
 
@@ -52,7 +52,12 @@ class Masker:
         self.ner = ner  # vd. LocalLlmNer; None = chỉ dùng regex, danh bạ và tên cột
 
     def mask_payload(self, payload: Any, vault: TraceVault) -> Any:
-        """Chạy NER một lần trên mọi chuỗi của payload rồi che. Lỗi NER được để nổi lên để chặn."""
+        """Chạy NER một lần trên mọi chuỗi của payload rồi che. Lỗi NER được để nổi lên để chặn.
+
+        Payload được chuẩn hoá NFC trước, để tên do NER/danh bạ tìm ra khớp được với văn bản gốc.
+        """
+        payload = normalize(payload)
+        vault = _IssuedCache(vault)
         scanner = self.scanner
         if self.ner is not None:
             entities = self.ner.extract("\n".join(_strings(payload)))
@@ -99,20 +104,61 @@ class Masker:
 
     @staticmethod
     def unmask(text: str, vault: TraceVault) -> str:
-        mapping = vault.mapping()
-        if not mapping:
-            return text
-        pattern = re.compile("|".join(re.escape(k) for k in sorted(mapping, key=len, reverse=True)))
-        return pattern.sub(lambda m: mapping[m.group(0)], text)
+        return _Restorer(vault.mapping())(text)
 
     def unmask_obj(self, obj: Any, vault: TraceVault) -> Any:
-        if isinstance(obj, str):
-            return self.unmask(obj, vault)
-        if isinstance(obj, dict):
-            return {k: self.unmask_obj(v, vault) for k, v in obj.items()}
-        if isinstance(obj, list):
-            return [self.unmask_obj(v, vault) for v in obj]
-        return obj
+        restore = _Restorer(vault.mapping())  # giải mã kho một lần cho cả payload
+        return _walk(obj, restore) if restore.pattern else obj
+
+
+class _Restorer:
+    def __init__(self, mapping: dict[str, str]):
+        self.mapping = mapping
+        self.pattern = (
+            re.compile("|".join(re.escape(k) for k in sorted(mapping, key=len, reverse=True))) if mapping else None
+        )
+
+    def __call__(self, text: str) -> str:
+        if self.pattern is None:
+            return text
+        return self.pattern.sub(lambda m: self.mapping[m.group(0)], text)
+
+
+def _walk(obj: Any, fn: Any) -> Any:
+    if isinstance(obj, str):
+        return fn(obj)
+    if isinstance(obj, dict):
+        return {k: _walk(v, fn) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_walk(v, fn) for v in obj]
+    return obj
+
+
+class _IssuedCache:
+    """Bọc TraceVault trong một lần che: đọc ánh xạ một lần thay vì giải mã cả kho cho mỗi chuỗi."""
+
+    def __init__(self, inner: TraceVault):
+        self.inner = inner
+        self._mapping = inner.mapping()
+
+    def surrogate_for(self, kind: str, value: str) -> str:
+        surrogate = self.inner.surrogate_for(kind, value)
+        self._mapping[surrogate] = value
+        return surrogate
+
+    def mapping(self) -> dict[str, str]:
+        return self._mapping
+
+
+def normalize(obj: Any) -> Any:
+    """Chuẩn hoá NFC mọi chuỗi (cả khoá dict) trong payload."""
+    if isinstance(obj, str):
+        return nfc(obj)
+    if isinstance(obj, dict):
+        return {normalize(k): normalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [normalize(v) for v in obj]
+    return obj
 
 
 def _strings(obj: Any) -> list[str]:
