@@ -8,7 +8,10 @@ services:
       PRIVACY_URL: http://privacy-vault:8090
     ports: ["8080:8080"]
     volumes: ["../data/gateway:/app/data"]
-    depends_on: [privacy-vault, redis]
+    depends_on:
+      privacy-vault: { condition: service_healthy }
+      redis: { condition: service_started }
+    restart: unless-stopped
     networks: [internal, egress]
 
   # Che/đổi và tái tạo thông tin. Chạy CÙNG MÁY với ai-local, chỉ trong mạng internal (không ra internet).
@@ -19,6 +22,14 @@ services:
     # File env riêng: khoá kho ánh xạ không bao giờ nạp vào container gateway.
     env_file: ../vault.env
     volumes: ["../data/vault:/app/vault"]
+    # Sẵn sàng = kho đọc được và LLM local trả lời. Gateway chỉ khởi động khi Vault sẵn sàng.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/readyz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    restart: unless-stopped
     depends_on: [ai-local]
     networks: [internal]
 

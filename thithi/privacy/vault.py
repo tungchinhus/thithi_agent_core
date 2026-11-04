@@ -160,6 +160,31 @@ class SqliteVault:
         with self._lock:
             self._db.execute("DELETE FROM entries WHERE trace_id = ?", (trace_id,))
 
+    def rotate(self, new_key: str | bytes) -> int:
+        """Mã hoá lại mọi ánh xạ bằng khoá mới (cả chỉ mục HMAC) trong một giao dịch. Trả về số dòng.
+
+        Dừng dịch vụ Vault trước khi xoay: tiến trình đang chạy vẫn giữ khoá cũ."""
+        new = SqliteVault.__new__(SqliteVault)
+        new._fernet = Fernet(new_key)
+        raw = new_key.encode() if isinstance(new_key, str) else new_key
+        new._index_key = hashlib.sha256(b"thithi-vault-index:" + raw).digest()
+        with self._lock:
+            rows = self._db.execute("SELECT rowid, value_enc FROM entries").fetchall()
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                for rowid, enc in rows:
+                    value = self._fernet.decrypt(enc).decode()
+                    self._db.execute(
+                        "UPDATE entries SET value_mac = ?, value_enc = ? WHERE rowid = ?",
+                        (new._mac(value), new._fernet.encrypt(value.encode()), rowid),
+                    )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise
+        self._fernet, self._index_key = new._fernet, new._index_key
+        return len(rows)
+
     def purge_expired(self) -> int:
         with self._lock:
             return self._db.execute("DELETE FROM entries WHERE expires_at <= ?", (time.time(),)).rowcount
