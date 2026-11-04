@@ -14,6 +14,8 @@ from thithi.orchestrator.registry import default_registry
 from thithi.orchestrator.runner import Orchestrator, RequestState
 
 from .labels import LabelPolicy
+from .masking import Masker
+from .ner import LocalLlmNer
 from .service import AuditLog, Gateway
 
 app = FastAPI(title="THITHI Agentic Core Gateway")
@@ -23,8 +25,11 @@ app = FastAPI(title="THITHI Agentic Core Gateway")
 def get_orchestrator() -> Orchestrator:
     from thithi.cloud.brain import ClaudeBrain
 
+    # Mặc định bật NER bằng LLM local. Chỉ tắt (THITHI_NER=off) khi dev không có GPU.
+    ner = None if os.environ.get("THITHI_NER", "local_llm") == "off" else LocalLlmNer()
     gateway = Gateway(
         LabelPolicy.from_yaml(os.environ.get("THITHI_LABELS", "config/labels.yaml")),
+        masker=Masker(ner=ner),
         audit=AuditLog(os.environ.get("THITHI_AUDIT_LOG", "data/audit.jsonl")),
     )
     brain = ClaudeBrain() if os.environ.get("ANTHROPIC_API_KEY") else None

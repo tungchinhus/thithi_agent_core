@@ -6,7 +6,7 @@ import re
 from collections import defaultdict
 from typing import Any
 
-from .pii import PiiScanner
+from .pii import KeywordDetector, PiiScanner
 
 TOKEN_RE = re.compile(r"<([A-Z_]+)_(\d{2,})>")
 
@@ -60,22 +60,40 @@ SENSITIVE_KEYS: dict[str, str] = {
 
 
 class Masker:
-    def __init__(self, scanner: PiiScanner | None = None, sensitive_keys: dict[str, str] | None = None):
+    def __init__(
+        self,
+        scanner: PiiScanner | None = None,
+        sensitive_keys: dict[str, str] | None = None,
+        ner: Any | None = None,
+    ):
         self.scanner = scanner or PiiScanner()
         self.sensitive_keys = SENSITIVE_KEYS if sensitive_keys is None else sensitive_keys
+        self.ner = ner  # vd. LocalLlmNer; None = chỉ dùng regex, danh bạ và tên cột
 
-    def mask(self, text: str, vault: TokenVault) -> str:
+    def mask_payload(self, payload: Any, vault: TokenVault) -> Any:
+        """Điểm vào của Gateway: chạy NER một lần trên mọi chuỗi của payload rồi che.
+
+        Lỗi NER (`NerUnavailable`) được để nổi lên để Gateway chặn payload.
+        """
+        scanner = self.scanner
+        if self.ner is not None:
+            entities = self.ner.extract("\n".join(_strings(payload)))
+            if entities:
+                scanner = scanner.with_extra(KeywordDetector(entities))
+        return self.mask_obj(payload, vault, scanner)
+
+    def mask(self, text: str, vault: TokenVault, scanner: PiiScanner | None = None) -> str:
         out, last = [], 0
-        for span in self.scanner.scan(text):
+        for span in (scanner or self.scanner).scan(text):
             out.append(text[last : span.start])
             out.append(vault.token_for(span.kind, span.text))
             last = span.end
         out.append(text[last:])
         return "".join(out)
 
-    def mask_obj(self, obj: Any, vault: TokenVault) -> Any:
+    def mask_obj(self, obj: Any, vault: TokenVault, scanner: PiiScanner | None = None) -> Any:
         if isinstance(obj, str):
-            return self.mask(obj, vault)
+            return self.mask(obj, vault, scanner)
         if isinstance(obj, dict):
             out = {}
             for k, v in obj.items():
@@ -83,10 +101,10 @@ class Masker:
                 if kind and v is not None and not isinstance(v, (dict, list)):
                     out[k] = vault.token_for(kind, str(v))
                 else:
-                    out[k] = self.mask_obj(v, vault)
+                    out[k] = self.mask_obj(v, vault, scanner)
             return out
         if isinstance(obj, list):
-            return [self.mask_obj(v, vault) for v in obj]
+            return [self.mask_obj(v, vault, scanner) for v in obj]
         return obj
 
     def verify_clean(self, text: str) -> None:
@@ -108,3 +126,14 @@ class Masker:
         if isinstance(obj, list):
             return [self.unmask_obj(v, vault) for v in obj]
         return obj
+
+
+def _strings(obj: Any) -> list[str]:
+    """Mọi chuỗi trong payload (kể cả khoá dict) để NER đọc một lần."""
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, dict):
+        return [x for k, v in obj.items() for x in (*_strings(k), *_strings(v))]
+    if isinstance(obj, list):
+        return [x for v in obj for x in _strings(v)]
+    return []

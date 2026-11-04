@@ -11,14 +11,20 @@ from thithi.orchestrator.runner import Orchestrator
 
 
 class FakeBrain:
-    def __init__(self, plan_steps, reviews=None):
+    def __init__(self, plan_steps, reviews=None, replan_steps=None):
         self.plan_steps = plan_steps
+        self.replan_steps = replan_steps
         self.reviews = list(reviews or [Review(score=5, passed=True, reasons=["ok"])])
         self.seen: list[str] = []
+        self.feedback: list[str] = []
 
-    def plan(self, trace_id, masked_request, catalog):
+    def plan(self, trace_id, masked_request, catalog, feedback=None):
         self.seen.append(masked_request)
-        return Plan(trace_id=trace_id, goal="g", steps=[PlanStep(**s) for s in self.plan_steps])
+        steps = self.plan_steps
+        if feedback:
+            self.feedback.append(feedback)
+            steps = self.replan_steps or self.plan_steps
+        return Plan(trace_id=trace_id, goal="g", steps=[PlanStep(**s) for s in steps])
 
     def review(self, step, done_when, masked_output):
         self.seen.append(masked_output)
@@ -64,12 +70,37 @@ def test_wf2_runs_pauses_for_approval_and_never_leaks(policy, agents, registry):
     assert state.outputs[4]["status"] == "draft"
 
 
-def test_qa_failure_retries_once_then_fails(policy, agents, registry):
+def test_qa_failure_replans_once_then_fails(policy, agents, registry):
     bad = Review(score=2, passed=False, reasons=["thiếu số liệu"])
     brain = FakeBrain(WF2[:3], reviews=[bad, bad])
     state = make(policy, agents, registry, brain).submit("ketoan.lan", {"finance"}, "finance", "Báo cáo")
     assert state.status == "failed"
     assert "QA không đạt" in state.error
+    assert state.replans == 1 and len(brain.feedback) == 1
+
+
+def test_qa_failure_sends_reasons_and_runs_new_plan(policy, agents, registry):
+    bad = Review(score=2, passed=False, reasons=["thiếu khoản quá hạn 30-60 ngày"])
+    good = Review(score=5, passed=True, reasons=["đủ"])
+    new_plan = [
+        dict(id=1, agent="finance", tool="mcp-erp.query_ar_aging", input={"as_of": "2026-11-02", "min_days_overdue": 1},
+             runs_on="local", done_when="có bảng aging từ 1 ngày"),
+        dict(id=2, agent="finance", tool="claude.review", input={"from_step": 1}, runs_on="cloud", done_when="kiểm duyệt"),
+    ]
+    brain = FakeBrain(WF2[:3], reviews=[bad, good], replan_steps=new_plan)
+    state = make(policy, agents, registry, brain).submit("ketoan.lan", {"finance"}, "finance", "Báo cáo")
+    assert state.status == "done", state.error
+    assert "thiếu khoản quá hạn 30-60 ngày" in brain.feedback[0]
+    assert len(state.outputs[1]["rows"]) == 3  # Plan mới đổi tham số nên ra kết quả khác
+
+
+def test_invalid_replan_is_rejected(policy, agents, registry):
+    bad = Review(score=2, passed=False, reasons=["x"])
+    evil = [dict(id=1, agent="finance", tool="mcp-notify.draft_email", input={"to": ["x@y.z"], "subject": "s", "body": "b"},
+                 runs_on="local", done_when="x")]  # công cụ ghi mà không có approval
+    brain = FakeBrain(WF2[:3], reviews=[bad], replan_steps=evil)
+    state = make(policy, agents, registry, brain).submit("ketoan.lan", {"finance"}, "finance", "Báo cáo")
+    assert state.status == "failed" and "approval" in state.error
 
 
 def test_plan_with_forbidden_tool_is_rejected_before_running(policy, agents, registry):

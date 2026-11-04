@@ -18,7 +18,7 @@ from .registry import ToolRegistry
 
 Status = Literal["planning", "running", "waiting_approval", "done", "failed", "rejected"]
 LOCAL_ONLY_AGENTS = {"knowledge"}
-MAX_QA_RETRIES = 1
+MAX_REPLANS = 1  # QA không đạt: Claude lập lại kế hoạch tối đa 1 lần
 
 
 @dataclass
@@ -36,7 +36,8 @@ class RequestState:
     sources: dict[int, list[str]] = field(default_factory=dict)
     results: list[StepResult] = field(default_factory=list)
     reviews: dict[int, Review] = field(default_factory=dict)
-    qa_retries: dict[int, int] = field(default_factory=dict)
+    masked_request: str | None = None
+    replans: int = 0
     error: str | None = None
 
 
@@ -99,9 +100,11 @@ class Orchestrator:
     def _cloud_plan(self, state: RequestState, agent: AgentDef) -> Plan:
         if self.brain is None:
             raise RuntimeError("Chưa cấu hình Claude")
-        masked = self.gateway.outbound(state.trace_id, state.text, ["user.request"], purpose="plan")
-        catalog = [{"agent": agent.id, "name": agent.name, "tools": self.registry.catalog(agent.tools)}]
-        return self.brain.plan(state.trace_id, masked, catalog)
+        state.masked_request = self.gateway.outbound(state.trace_id, state.text, ["user.request"], purpose="plan")
+        return self.brain.plan(state.trace_id, state.masked_request, self._catalog(agent))
+
+    def _catalog(self, agent: AgentDef) -> list[dict[str, Any]]:
+        return [{"agent": agent.id, "name": agent.name, "tools": self.registry.catalog(agent.tools)}]
 
     # ---------- thực thi ----------
     def approve(self, trace_id: str, step_id: int, approver: str, approved: bool) -> RequestState:
@@ -124,19 +127,16 @@ class Orchestrator:
 
     def _run(self, state: RequestState, approved_step: int | None = None) -> RequestState:
         assert state.plan is not None
-        steps = state.plan.steps
-        while state.next_index < len(steps):
-            step = steps[state.next_index]
+        while state.next_index < len(state.plan.steps):  # đọc lại mỗi vòng: Plan có thể được thay
+            step = state.plan.steps[state.next_index]
             if step.approval and step.id != approved_step:
                 state.status = "waiting_approval"
                 state.results.append(StepResult(step_id=step.id, status="waiting_approval"))
                 return state
             try:
                 if step.tool == "claude.review":
-                    retry_from = self._review(state, step)
-                    if retry_from is not None:
-                        state.next_index = retry_from
-                        continue
+                    if self._review(state, step):
+                        continue  # đã có Plan mới, chạy lại từ đầu
                 else:
                     self._exec_local(state, step)
             except Exception as exc:
@@ -175,8 +175,8 @@ class Orchestrator:
         state.results.append(StepResult(step_id=step.id, status="done", output=output))
         self.gateway.audit.log(state.trace_id, "step_done", step=step.id, tool=step.tool)
 
-    def _review(self, state: RequestState, step: PlanStep) -> int | None:
-        """Gửi đầu ra (đã che) lên Claude QA. Trả về chỉ số bước cần chạy lại, hoặc None."""
+    def _review(self, state: RequestState, step: PlanStep) -> bool:
+        """Gửi đầu ra (đã che) lên Claude QA. Trả về True nếu đã thay bằng Plan mới cần chạy lại."""
         if self.brain is None:
             raise RuntimeError("Chưa cấu hình Claude")
         ref = step.input["from_step"]
@@ -186,12 +186,35 @@ class Orchestrator:
         state.reviews[ref] = review
         state.results.append(StepResult(step_id=step.id, status="done", output=review.model_dump()))
         if review.passed:
-            return None
-        tries = state.qa_retries.get(ref, 0)
-        if tries >= MAX_QA_RETRIES:
+            return False
+        if state.replans >= MAX_REPLANS or state.masked_request is None:
             raise RuntimeError("QA không đạt: " + "; ".join(review.reasons))
-        state.qa_retries[ref] = tries + 1
-        return next(i for i, s in enumerate(state.plan.steps) if s.id == ref)
+        self._replan(state, target, review)
+        return True
+
+    def _replan(self, state: RequestState, failed: PlanStep, review: Review) -> None:
+        """Chạy lại y nguyên bước cũ sẽ cho cùng kết quả, nên đưa lý do cho Claude lập Plan mới.
+
+        Plan cũ chỉ chứa tên công cụ và tham số do chính Claude viết (đã là token), không có dữ liệu thô.
+        """
+        feedback = json.dumps(
+            {
+                "previous_plan": [s.model_dump() for s in state.plan.steps],
+                "failed_step": failed.id,
+                "done_when": failed.done_when,
+                "score": review.score,
+                "reasons": review.reasons,
+            },
+            ensure_ascii=False,
+        )
+        new_plan = self.brain.plan(state.trace_id, state.masked_request, self._catalog(self.agents[state.agent_id]), feedback)
+        validate_plan(new_plan, self.agents, self.registry, state.user_roles)
+        state.replans += 1
+        state.plan = new_plan
+        state.next_index = 0
+        state.outputs.clear()
+        state.sources.clear()
+        self.gateway.audit.log(state.trace_id, "replanned", failed_step=failed.id, reasons=review.reasons)
 
     def _fail(self, state: RequestState, error: str, status: Status = "failed") -> RequestState:
         state.status = status

@@ -10,9 +10,13 @@ Tài liệu kiến trúc: https://claude.ai/artifact/BjWAU6pDbBCfh9LGXHowhm
 2. Router chọn đường: agent `knowledge` hoặc agent có dữ liệu Tối mật chạy **thuần local**; còn lại là **lai**.
 3. Đường lai: Gateway che yêu cầu rồi gửi lên Claude; Claude trả về **Plan JSON** (structured output).
 4. `plan_validator` kiểm tra Plan: chỉ công cụ trong danh mục của agent, công cụ ghi phải có `approval`, công cụ nội bộ chỉ chạy local. Plan sai thì không chạy bước nào.
-5. Orchestrator chạy từng bước ở local qua MCP server; bước `claude.review` gửi đầu ra **đã che** lên Claude QA (không đạt thì làm lại tối đa 1 lần).
+5. Orchestrator chạy từng bước ở local qua MCP server; bước `claude.review` gửi đầu ra **đã che** lên Claude QA. Không đạt thì Claude nhận lý do và lập Plan mới (tối đa 1 lần), Plan mới cũng phải qua `plan_validator`.
 6. Bước có `approval: true` dừng chờ người duyệt (`POST /v1/approvals/{trace_id}/{step}`).
 7. Gateway đổi token về giá trị thật trước khi trả kết quả cho người dùng.
+
+## Che dữ liệu
+
+Gateway che theo bốn lớp: biểu thức chính quy (email, SĐT, CCCD, MST, STK, số tiền), danh bạ tên đã biết, tên cột nhạy cảm (`customer_name`, `amount`...), và **NER bằng LLM local** cho tên người, tổ chức, địa chỉ trong văn bản tự do. LLM local lỗi thì Gateway **chặn** payload thay vì gửi bản che thiếu. `THITHI_NER=off` chỉ dùng khi dev không có GPU.
 
 ## Cấu trúc
 
@@ -32,7 +36,7 @@ Tài liệu kiến trúc: https://claude.ai/artifact/BjWAU6pDbBCfh9LGXHowhm
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 25 test, không cần API key hay GPU
+pytest -q                                   # 34 test, không cần API key hay GPU
 
 cp .env.example .env                        # điền ANTHROPIC_API_KEY, LOCAL_LLM_URL
 uvicorn thithi.gateway.app:app --port 8080
@@ -59,5 +63,4 @@ Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_serve
 - [ ] Orchestrator gọi MCP server qua MCP client (streamable-http) thay vì gọi hàm trong cùng tiến trình.
 - [ ] `TokenVault` và trạng thái yêu cầu lưu Redis/PostgreSQL thay vì bộ nhớ.
 - [ ] Backend ERP thật cho `mcp-erp`; Qdrant/pgvector + embedding local cho `mcp-docs`.
-- [ ] NER tiếng Việt chạy local để che tên người/công ty trong văn bản tự do (hiện che theo regex, danh bạ, và tên cột).
 - [ ] Bộ 200 mẫu PII của công ty để nghiệm thu Gateway.

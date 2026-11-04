@@ -106,7 +106,9 @@ class ClaudeBrain:
         text = next(b.text for b in resp.content if b.type == "text")
         return json.loads(text)
 
-    def plan(self, trace_id: str, masked_request: str, catalog: list[dict[str, Any]]) -> Plan:
+    def plan(
+        self, trace_id: str, masked_request: str, catalog: list[dict[str, Any]], feedback: str | None = None
+    ) -> Plan:
         user = (
             "Danh mục agent và công cụ được phép:\n"
             + json.dumps(catalog, ensure_ascii=False, indent=1)
@@ -114,6 +116,14 @@ class ClaudeBrain:
             + masked_request
             + "\n</request>"
         )
+        if feedback:
+            # Lập lại kế hoạch sau khi QA không đạt: Claude thấy Plan cũ và lý do, phải đổi cách làm.
+            user += (
+                "\n\nKế hoạch trước KHÔNG đạt kiểm duyệt. Hãy lập kế hoạch mới khắc phục các lý do dưới đây "
+                "(đổi tham số, thêm hoặc bỏ bước), không lặp lại y nguyên kế hoạch cũ.\n<feedback>\n"
+                + feedback
+                + "\n</feedback>"
+            )
         raw = self._call(PLANNER_SYSTEM, user, PLAN_SCHEMA)
         steps = []
         for s in raw["steps"]:
