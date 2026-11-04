@@ -31,6 +31,29 @@ Gateway **không giữ ánh xạ** và không khởi động nếu thiếu `PRIV
 
 Giới hạn của chế độ `pseudonym`: nếu Claude viết lại giá trị giả khác đi (vd. chỉ ghi "anh Khôi"), phần đó không tái tạo được; và nếu dữ liệu thật tình cờ trùng một tên trong danh sách tên giả, tên đó sẽ không được che. Dùng `token` cho dữ liệu nhãn `mat` trở lên.
 
+### Việc giao cho LLM local
+
+| Bước | LLM local làm gì | Khi LLM local lỗi |
+| --- | --- | --- |
+| Che (NER) | Tìm tên người, tổ chức, địa chỉ trong văn bản tự do | Chặn, không gửi lên cloud |
+| Soát lại (`llm_recheck`) | Đọc chính bản sắp gửi lên cloud, tên nào còn sót thì che nốt | Chặn |
+| Tái tạo (`llm_restore`) | Chỉ những dòng Claude viết lại giá trị thay thế mà luật xác định không đổi được (vd. "Khôi đã gửi") | Giữ bản đã đổi bằng luật, đếm "chưa tái tạo" và cảnh báo |
+
+Tái tạo chạy ba tầng: khớp chính xác, biến thể xác định (`kh_01`, `0900000001`, "Minh Khôi", "anh Khôi", "Sao Mai"), rồi mới tới LLM local. Kết quả của LLM chỉ được nhận nếu không còn giá trị thay thế và phần còn lại gần như giữ nguyên.
+
+### Vận hành tự động trên máy AI local
+
+```bash
+scripts/vault.sh setup               # tạo khoá + token (vault.env, quyền 600), dựng stack, chờ /readyz
+sudo scripts/install-timers.sh       # purge mỗi giờ, monitor 5 phút, eval 2 giờ sáng (systemd)
+scripts/vault.sh rotate-key          # xoay khoá kho ánh xạ (dừng Vault vài giây, có bản sao)
+```
+
+- `GET /readyz` (kho đọc được + LLM local trả lời) dùng cho healthcheck: Gateway chỉ khởi động khi Vault sẵn sàng.
+- `GET /metrics` (Prometheus): số lần che/bị chặn, giá trị đã tái tạo theo cách, dòng chưa tái tạo, lỗi LLM theo bước, thời gian xử lý. Không có giá trị hay trace_id.
+- `python -m thithi.privacy.monitor` so số đo với lần trước và gửi cảnh báo Teams (`THITHI_ALERT_WEBHOOK`) khi Vault/LLM không sẵn sàng, tỉ lệ bị chặn cao, có dòng chưa tái tạo, hoặc lượt soát lại phải che thêm. Cảnh báo đi qua container gateway vì Vault không có đường ra internet.
+- Nghiệm thu đêm chạy `evaluate` trên `data/vault/pii_samples.jsonl` (dữ liệu thật, chỉ ở máy AI local) và cảnh báo nếu rò rỉ.
+
 ## Cấu trúc
 
 | Thư mục | Nội dung |
@@ -51,7 +74,7 @@ Giới hạn của chế độ `pseudonym`: nếu Claude viết lại giá trị
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 65 test, không cần API key hay GPU
+pytest -q                                   # 86 test, không cần API key hay GPU
 
 cp .env.example .env                        # điền ANTHROPIC_API_KEY, LOCAL_LLM_URL
 THITHI_ENV=dev THITHI_NER=off uvicorn thithi.gateway.app:app --port 8080   # dev: Vault chạy cùng tiến trình

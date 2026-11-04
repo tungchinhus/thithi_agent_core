@@ -8,6 +8,12 @@ pseudonym_kinds: [NGUOI, CTY, KH, NCC, DIA_CHI, EMAIL, SDT]
 ttl_hours: 24
 # Bắt buộc NER bằng LLM local. Chỉ môi trường dev (THITHI_ENV=dev, THITHI_NER=off) được bỏ qua.
 require_ner: true
+# Lượt soát cuối: LLM local đọc lại chính bản sắp gửi lên cloud, tên nào NER lượt đầu bỏ sót thì che nốt.
+# Tốn thêm một lần gọi LLM mỗi payload; tắt chỉ khi đã đo được NER đủ tốt (xem scripts/vault.sh eval).
+llm_recheck: true
+# Tái tạo cả khi Claude viết lại giá trị thay thế ("anh Khôi" thay cho "Hoàng Minh Khôi"): khớp biến thể trước,
+# dòng nào còn sót mới nhờ LLM local viết lại (kết quả được kiểm tra, sai thì giữ nguyên và đếm để cảnh báo).
+llm_restore: true
 # Danh bạ tên đã biết (khách hàng, nhà cung cấp, nhân viên) xuất từ ERP/CRM/Entra ID, CSV hai cột `name,kind`.
 # Bổ sung cho NER (bắt tên mà LLM local bỏ sót), không thay NER. Chỉ để trên máy AI local; file thiếu thì bỏ qua.
 known_names: [data/vault/danh_ba.csv]

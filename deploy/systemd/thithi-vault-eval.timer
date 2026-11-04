@@ -1,0 +1,10 @@
+[Unit]
+Description=Nghiệm thu PII hằng đêm trên bộ mẫu thật (lúc 2 giờ sáng, ít tải)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=thithi-vault@eval.service
+
+[Install]
+WantedBy=timers.target

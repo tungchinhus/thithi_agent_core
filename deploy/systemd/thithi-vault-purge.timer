@@ -1,0 +1,10 @@
+[Unit]
+Description=Xoá ánh xạ quá hạn của Privacy Vault mỗi giờ
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=thithi-vault@purge.service
+
+[Install]
+WantedBy=timers.target

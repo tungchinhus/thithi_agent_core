@@ -1,0 +1,13 @@
+# Một việc định kỳ của Privacy Vault: %i = purge | monitor | eval (xem scripts/vault.sh).
+# Cài bằng scripts/install-timers.sh; THITHI_HOME là thư mục repo trên máy AI local.
+[Unit]
+Description=THITHI Privacy Vault: %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/default/thithi
+ExecStart=/bin/bash -c '"${THITHI_HOME}/scripts/vault.sh" %i'
+# monitor trả mã 2 khi đã gửi cảnh báo: không coi là lỗi của unit
+SuccessExitStatus=2

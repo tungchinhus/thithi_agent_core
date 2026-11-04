@@ -31,10 +31,22 @@ class NerUnavailable(RuntimeError):
     pass
 
 
-def _default_chat(system: str, user: str, json_mode: bool = False) -> str:
+def default_chat(system: str, user: str, json_mode: bool = False) -> str:
     from thithi.mcp_servers.local_llm import _chat
 
     return _chat(system, user, json_mode=json_mode)
+
+
+_default_chat = default_chat  # tên cũ
+
+
+def ping_local_llm(timeout: float = 5) -> None:
+    """Gọi /models của LLM local (vLLM/Ollama, API chuẩn OpenAI). Lỗi thì ném ngoại lệ."""
+    import httpx
+
+    from thithi.mcp_servers.local_llm import BASE_URL
+
+    httpx.get(f"{BASE_URL}/models", timeout=timeout).raise_for_status()
 
 
 class LocalLlmNer:

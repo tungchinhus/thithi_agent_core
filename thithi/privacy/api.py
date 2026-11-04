@@ -13,6 +13,7 @@ from functools import lru_cache
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from .engine import LeakError, NerUnavailable, PrivacyEngine, build_engine
@@ -60,4 +61,19 @@ def purge(trace_id: str, engine: PrivacyEngine = Depends(get_engine)):
 
 @app.get("/healthz")
 def healthz():
+    """Tiến trình còn sống (liveness)."""
     return {"ok": True}
+
+
+@app.get("/readyz")
+def readyz(engine: PrivacyEngine = Depends(get_engine)):
+    """Sẵn sàng nhận việc (readiness): kho ánh xạ đọc được và LLM local trả lời. Không thì 503."""
+    checks = engine.ready()
+    ok = all(v == "ok" or v.startswith("tắt") for v in checks.values())
+    return JSONResponse({"ready": ok, "checks": checks}, status_code=200 if ok else 503)
+
+
+@app.get("/metrics")
+def metrics(engine: PrivacyEngine = Depends(get_engine)):
+    """Số đo Prometheus. Chỉ có số đếm và thời gian, không có giá trị hay trace_id."""
+    return PlainTextResponse(engine.metrics.render(), media_type="text/plain; version=0.0.4")

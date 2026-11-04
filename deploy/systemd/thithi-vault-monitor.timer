@@ -1,0 +1,10 @@
+[Unit]
+Description=Giám sát Privacy Vault mỗi 5 phút, cảnh báo qua Teams
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=thithi-vault@monitor.service
+
+[Install]
+WantedBy=timers.target
