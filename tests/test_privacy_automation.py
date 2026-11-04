@@ -270,3 +270,44 @@ def test_admin_purge_expired(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PRIVACY_VAULT_KEY", key)
     assert admin(["purge-expired"]) == 0
     assert "Đã xoá 1" in capsys.readouterr().out
+
+
+# ---------- nghiệm thu: câu trả lời viết lại, thời gian, file mẫu ----------
+
+def _oracle_ner(samples):
+    """NER 'hoàn hảo' giả lập: biết mọi tên trong bộ mẫu (để thử công cụ đo, không phải đo NER)."""
+    from thithi.privacy.pii import PATTERNS
+
+    names = {}
+    for s in samples:
+        for value in s["pii"]:
+            if any(p.search(value) for p in PATTERNS.values()):
+                continue
+            kind = "ORG" if value.split()[0] in ("Công", "Cửa") else "ADDRESS" if value[0].isdigit() else "PERSON"
+            names[value] = kind
+    return LocalLlmNer(lambda s, u, json_mode=False: json.dumps(
+        {"entities": [{"text": k, "type": t} for k, t in names.items() if k in u]}, ensure_ascii=False))
+
+
+@pytest.mark.parametrize("mode", ["token", PSEUDONYM])
+def test_example_sample_file_passes_with_perfect_ner(mode):
+    from thithi.privacy.evaluate import evaluate, load_samples
+
+    samples = load_samples("config/pii_samples.example.jsonl")
+    engine = PrivacyEngine(InMemoryVault(SurrogatePolicy(mode)), Masker(ner=_oracle_ner(samples)))
+    report = evaluate(engine, samples)
+    assert report.passed, report.summary()
+    assert report.replies_total == 4 and report.replies_ok == 4
+    assert "Thời gian che" in report.summary()
+
+
+def test_reply_failures_are_reported_by_index_only():
+    from thithi.privacy.evaluate import evaluate
+
+    sample = {"id": "x", "text": "Chị Trần Thị Lan gọi 0912345678", "pii": ["Trần Thị Lan", "0912345678"],
+              "replies": ["{0:ten} đã gọi"]}  # tên gọi đứng một mình, không có LLM local: không tái tạo được
+    engine = PrivacyEngine(InMemoryVault(SurrogatePolicy(PSEUDONYM)), Masker(ner=ner([{"text": "Trần Thị Lan", "type": "PERSON"}])))
+    report = evaluate(engine, [sample])
+    assert not report.passed and report.replies_ok == 0
+    summary = report.summary()
+    assert "replies'): 0" in summary and "Lan" not in summary
