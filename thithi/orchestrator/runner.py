@@ -167,8 +167,10 @@ class Orchestrator:
     def _exec_local(self, state: RequestState, step: PlanStep) -> None:
         spec = self.registry.get(step.tool)
         args, inherited = self._resolve_input(state, step)
-        if spec.writes:
-            args = self.gateway.inbound(state.trace_id, args)  # bản nháp gửi người thật: đổi token về giá trị thật
+        # Tham số do Claude viết chỉ chứa giá trị thay thế (<KH_01>...). Công cụ chạy ở local nên Privacy Vault
+        # đổi chúng về giá trị thật trước khi gọi; nếu không, ERP sẽ tìm khách hàng tên "<KH_01>".
+        if state.route == "hybrid":
+            args = self.gateway.inbound(state.trace_id, args, actor=state.user_id)
         output = spec.fn(user_id=state.user_id, **args)
         state.outputs[step.id] = output
         state.sources[step.id] = sorted(set(inherited + _sources_of(output)))

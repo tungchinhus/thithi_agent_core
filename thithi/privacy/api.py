@@ -34,12 +34,13 @@ def service_auth(x_service_token: str = Header(...)) -> None:
 class Payload(BaseModel):
     trace_id: str
     payload: Any
+    actor: str | None = None  # người dùng đứng sau lời gọi, chỉ để ghi nhật ký truy cập
 
 
 @app.post("/v1/mask", dependencies=[Depends(service_auth)])
 def mask(body: Payload, engine: PrivacyEngine = Depends(get_engine)):
     try:
-        return {"payload": engine.mask(body.trace_id, body.payload)}
+        return {"payload": engine.mask(body.trace_id, body.payload, actor=body.actor)}
     except NerUnavailable as exc:
         raise HTTPException(503, {"code": "ner_unavailable", "detail": str(exc)}) from exc
     except LeakError as exc:
@@ -48,7 +49,7 @@ def mask(body: Payload, engine: PrivacyEngine = Depends(get_engine)):
 
 @app.post("/v1/unmask", dependencies=[Depends(service_auth)])
 def unmask(body: Payload, engine: PrivacyEngine = Depends(get_engine)):
-    return {"payload": engine.unmask(body.trace_id, body.payload)}
+    return {"payload": engine.unmask(body.trace_id, body.payload, actor=body.actor)}
 
 
 @app.delete("/v1/traces/{trace_id}", dependencies=[Depends(service_auth)])

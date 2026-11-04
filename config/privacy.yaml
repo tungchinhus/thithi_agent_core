@@ -8,3 +8,10 @@ pseudonym_kinds: [NGUOI, CTY, KH, NCC, DIA_CHI, EMAIL, SDT]
 ttl_hours: 24
 # Bắt buộc NER bằng LLM local. Chỉ môi trường dev (THITHI_ENV=dev, THITHI_NER=off) được bỏ qua.
 require_ner: true
+# Danh bạ tên đã biết (khách hàng, nhà cung cấp, nhân viên) xuất từ ERP/CRM/Entra ID, CSV hai cột `name,kind`.
+# Bổ sung cho NER (bắt tên mà LLM local bỏ sót), không thay NER. Chỉ để trên máy AI local; file thiếu thì bỏ qua.
+known_names: [data/vault/danh_ba.csv]
+# Cột dữ liệu có cấu trúc luôn che theo tên cột, thêm vào danh sách mặc định trong masking.py.
+sensitive_keys: {}
+#   ma_nhan_vien: NV
+#   so_hop_dong: HD

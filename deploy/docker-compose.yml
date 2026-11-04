@@ -16,13 +16,8 @@ services:
   privacy-vault:
     build: { context: .., dockerfile: deploy/Dockerfile }
     command: ["uvicorn", "thithi.privacy.api:app", "--host", "0.0.0.0", "--port", "8090"]
-    environment:
-      PRIVACY_CONFIG: config/privacy.yaml
-      PRIVACY_VAULT_DB: /app/vault/vault.db
-      PRIVACY_VAULT_KEY: ${PRIVACY_VAULT_KEY:?Đặt PRIVACY_VAULT_KEY}
-      PRIVACY_SERVICE_TOKEN: ${PRIVACY_SERVICE_TOKEN:?Đặt PRIVACY_SERVICE_TOKEN}
-      LOCAL_LLM_URL: http://ai-local:8000/v1
-      LOCAL_LLM_MODEL: local-model
+    # File env riêng: khoá kho ánh xạ không bao giờ nạp vào container gateway.
+    env_file: ../vault.env
     volumes: ["../data/vault:/app/vault"]
     depends_on: [ai-local]
     networks: [internal]
@@ -38,7 +33,7 @@ services:
     volumes: ["hf-cache:/root/.cache/huggingface"]
     networks: [internal]
 
-  # Bảng ánh xạ token (sẽ thay TokenVault trong bộ nhớ) và hàng đợi Worker.
+  # Hàng đợi Worker và trạng thái yêu cầu (ánh xạ token nằm trong Privacy Vault, không ở đây).
   redis:
     image: redis:7-alpine
     networks: [internal]
