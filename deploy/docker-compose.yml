@@ -4,10 +4,28 @@ services:
   gateway:
     build: { context: .., dockerfile: deploy/Dockerfile }
     env_file: ../.env
+    environment:
+      PRIVACY_URL: http://privacy-vault:8090
     ports: ["8080:8080"]
-    volumes: ["../data:/app/data"]
-    depends_on: [ai-local, redis]
+    volumes: ["../data/gateway:/app/data"]
+    depends_on: [privacy-vault, redis]
     networks: [internal, egress]
+
+  # Che/đổi và tái tạo thông tin. Chạy CÙNG MÁY với ai-local, chỉ trong mạng internal (không ra internet).
+  # Là nơi duy nhất giữ ánh xạ giá trị giả <-> giá trị thật (SQLite mã hoá, tự xoá theo ttl_hours).
+  privacy-vault:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    command: ["uvicorn", "thithi.privacy.api:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      PRIVACY_CONFIG: config/privacy.yaml
+      PRIVACY_VAULT_DB: /app/vault/vault.db
+      PRIVACY_VAULT_KEY: ${PRIVACY_VAULT_KEY:?Đặt PRIVACY_VAULT_KEY}
+      PRIVACY_SERVICE_TOKEN: ${PRIVACY_SERVICE_TOKEN:?Đặt PRIVACY_SERVICE_TOKEN}
+      LOCAL_LLM_URL: http://ai-local:8000/v1
+      LOCAL_LLM_MODEL: local-model
+    volumes: ["../data/vault:/app/vault"]
+    depends_on: [ai-local]
+    networks: [internal]
 
   ai-local:
     image: vllm/vllm-openai:latest

@@ -7,9 +7,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from thithi.privacy.client import PrivacyClient
+from thithi.privacy.masking import LeakError
+from thithi.privacy.ner import NerUnavailable
+
 from .labels import CloudPolicy, LabelPolicy
-from .masking import Masker, TokenVault
-from .ner import NerUnavailable
 
 
 class Blocked(RuntimeError):
@@ -33,36 +35,33 @@ class AuditLog:
 
 
 class Gateway:
-    def __init__(self, policy: LabelPolicy, masker: Masker | None = None, audit: AuditLog | None = None):
-        self.policy = policy
-        self.masker = masker or Masker()
-        self.audit = audit or AuditLog()
-        self.vaults: dict[str, TokenVault] = {}
+    """Cửa duy nhất ra cloud. Việc che/đổi và tái tạo do Privacy Vault trên máy AI local làm;
+    Gateway không giữ ánh xạ nên tự nó không tái tạo được thông tin thật."""
 
-    def vault(self, trace_id: str) -> TokenVault:
-        return self.vaults.setdefault(trace_id, TokenVault())
+    def __init__(self, policy: LabelPolicy, privacy: PrivacyClient, audit: AuditLog | None = None):
+        self.policy = policy
+        self.privacy = privacy
+        self.audit = audit or AuditLog()
 
     def outbound(self, trace_id: str, payload: Any, sources: list[str], purpose: str) -> str:
-        """Chuẩn bị payload để gửi lên Claude: gắn nhãn, che, quét lần hai, ghi log."""
+        """Chuẩn bị payload để gửi lên Claude: gắn nhãn, nhờ Privacy Vault che và quét lần hai, ghi log."""
         cls = self.policy.classify(sources)
         if not cls.cloud_allowed:
             self.audit.log(trace_id, "blocked", purpose=purpose, label=cls.label.name, sources=sources)
             raise Blocked(f"Dữ liệu nhãn {cls.label.name} không được gửi lên cloud")
         if cls.allow_cloud != CloudPolicy.RAW:
             try:
-                payload = self.masker.mask_payload(payload, self.vault(trace_id))
+                payload = self.privacy.mask(trace_id, payload)
             except NerUnavailable as exc:
                 self.audit.log(trace_id, "ner_blocked", purpose=purpose, error=str(exc))
                 raise Blocked(f"{exc}. Không gửi lên cloud khi chưa che được tên riêng.") from exc
+            except LeakError as exc:
+                self.audit.log(trace_id, "leak_blocked", purpose=purpose, error=str(exc))
+                raise Blocked(str(exc)) from exc
         text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
-        try:
-            self.masker.verify_clean(text)
-        except Exception as exc:
-            self.audit.log(trace_id, "leak_blocked", purpose=purpose, error=str(exc))
-            raise Blocked(str(exc)) from exc
         self.audit.log(trace_id, "outbound", purpose=purpose, label=cls.label.name, payload=text)
         return text
 
     def inbound(self, trace_id: str, value: Any) -> Any:
-        """Đổi token về giá trị thật trước khi trả cho người dùng trong mạng nội bộ."""
-        return self.masker.unmask_obj(value, self.vault(trace_id))
+        """Nhờ Privacy Vault tái tạo giá trị thật trước khi trả cho người dùng trong mạng nội bộ."""
+        return self.privacy.unmask(trace_id, value)

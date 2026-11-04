@@ -8,6 +8,9 @@ from thithi.gateway.service import Gateway
 from thithi.mcp_servers import local_llm
 from thithi.orchestrator.models import Plan, PlanStep, Review
 from thithi.orchestrator.runner import Orchestrator
+from thithi.privacy.engine import PrivacyEngine
+from thithi.privacy.masking import Masker
+from thithi.privacy.vault import InMemoryVault
 
 
 class FakeBrain:
@@ -50,7 +53,7 @@ WF2 = [
 
 
 def make(policy, agents, registry, brain):
-    return Orchestrator(Gateway(policy), brain, agents, registry)
+    return Orchestrator(Gateway(policy, PrivacyEngine(InMemoryVault(), Masker(), require_ner=False)), brain, agents, registry)
 
 
 def test_wf2_runs_pauses_for_approval_and_never_leaks(policy, agents, registry):

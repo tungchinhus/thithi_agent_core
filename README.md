@@ -14,15 +14,26 @@ Tài liệu kiến trúc: https://claude.ai/artifact/BjWAU6pDbBCfh9LGXHowhm
 6. Bước có `approval: true` dừng chờ người duyệt (`POST /v1/approvals/{trace_id}/{step}`).
 7. Gateway đổi token về giá trị thật trước khi trả kết quả cho người dùng.
 
-## Che dữ liệu
+## Che, đổi và tái tạo thông tin: Privacy Vault (bắt buộc chạy trên máy AI local)
 
-Gateway che theo bốn lớp: biểu thức chính quy (email, SĐT, CCCD, MST, STK, số tiền), danh bạ tên đã biết, tên cột nhạy cảm (`customer_name`, `amount`...), và **NER bằng LLM local** cho tên người, tổ chức, địa chỉ trong văn bản tự do. LLM local lỗi thì Gateway **chặn** payload thay vì gửi bản che thiếu. `THITHI_NER=off` chỉ dùng khi dev không có GPU.
+Mọi việc chạm tới giá trị thật đều nằm trong dịch vụ **Privacy Vault** (`thithi/privacy/`), chạy cùng máy với LLM local, chỉ trong mạng nội bộ:
+
+1. **Nhận diện**: biểu thức chính quy (email, SĐT, CCCD, MST, STK, số tiền), danh bạ tên đã biết, tên cột nhạy cảm (`customer_name`, `amount`...), và **NER bằng LLM local** cho tên người, tổ chức, địa chỉ trong văn bản tự do (bắt buộc; LLM local lỗi thì chặn).
+2. **Che hoặc đổi** (`config/privacy.yaml`): `token` → `<KH_01>`; `pseudonym` → giá trị giả trông như thật (`Hoàng Minh Khôi`, `0900 000 001`, `lienhe01@example.vn`). Số tiền, CCCD, STK, MST luôn dùng token.
+3. **Lưu ánh xạ**: SQLite, giá trị thật mã hoá Fernet, chỉ mục bằng HMAC (file CSDL không chứa giá trị thật đọc được), tự xoá sau `ttl_hours`.
+4. **Quét lần hai** rồi mới trả bản đã che cho Gateway.
+5. **Tái tạo**: khi kết quả quay về, chỉ Vault đổi giá trị thay thế về giá trị thật.
+
+Gateway **không giữ ánh xạ** và không khởi động nếu thiếu `PRIVACY_URL` (trừ `THITHI_ENV=dev`). Gọi Vault lỗi hay quá giờ đều bị coi là chưa che được, nên Gateway chặn.
+
+Giới hạn của chế độ `pseudonym`: nếu Claude viết lại giá trị giả khác đi (vd. chỉ ghi "anh Khôi"), phần đó không tái tạo được; và nếu dữ liệu thật tình cờ trùng một tên trong danh sách tên giả, tên đó sẽ không được che. Dùng `token` cho dữ liệu nhãn `mat` trở lên.
 
 ## Cấu trúc
 
 | Thư mục | Nội dung |
 | --- | --- |
-| `thithi/gateway/` | Nhãn dữ liệu, nhận diện PII, che/đổi token, kiểm tra Plan, API FastAPI |
+| `thithi/gateway/` | Nhãn dữ liệu, kiểm tra Plan, API FastAPI, gọi Privacy Vault |
+| `thithi/privacy/` | Privacy Vault: nhận diện PII + NER local, che/đổi, kho ánh xạ mã hoá, tái tạo, API riêng |
 | `thithi/cloud/brain.py` | Gọi Claude để lập Plan và QA (structured output, cache system prompt, fallback khi bị từ chối) |
 | `thithi/orchestrator/` | Định tuyến, thực thi Plan, chờ duyệt, danh mục công cụ, định nghĩa agent |
 | `thithi/mcp_servers/` | `mcp-erp`, `mcp-docs`, `mcp-local-llm`, `mcp-notify` (MCP Python SDK 2.x) |
@@ -30,16 +41,17 @@ Gateway che theo bốn lớp: biểu thức chính quy (email, SĐT, CCCD, MST, 
 | `config/labels.yaml` | Nguồn dữ liệu → nhãn (`cong_khai`, `noi_bo`, `mat`, `toi_mat`) |
 | `config/roles.yaml` | Người dùng → vai trò (dev; thật lấy từ Google Workspace/Microsoft 365) |
 | `agents/*.yaml` | Mỗi phòng ban một file: công cụ được dùng, nhãn tối đa, bước cần duyệt, người duyệt |
-| `deploy/` | Dockerfile, docker-compose (Gateway, vLLM, Redis) |
+| `config/privacy.yaml` | Chế độ `token`/`pseudonym`, thời hạn ánh xạ, bắt buộc NER |
+| `deploy/` | Dockerfile, docker-compose (Gateway, Privacy Vault, vLLM, Redis) |
 
 ## Chạy thử
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                   # 34 test, không cần API key hay GPU
+pytest -q                                   # 47 test, không cần API key hay GPU
 
 cp .env.example .env                        # điền ANTHROPIC_API_KEY, LOCAL_LLM_URL
-uvicorn thithi.gateway.app:app --port 8080
+THITHI_ENV=dev THITHI_NER=off uvicorn thithi.gateway.app:app --port 8080   # dev: Vault chạy cùng tiến trình
 
 # WF1: hỏi đáp nội bộ, thuần local (cần LLM local đang chạy)
 curl -s localhost:8080/v1/requests -H 'X-User-Id: nhanvien.an' -H 'Content-Type: application/json' \
@@ -48,6 +60,8 @@ curl -s localhost:8080/v1/requests -H 'X-User-Id: nhanvien.an' -H 'Content-Type:
 # WF2: báo cáo tuần (cần ANTHROPIC_API_KEY)
 python -m thithi.workflows.weekly_report --user giamdoc
 ```
+
+Privacy Vault chạy riêng trên máy AI local: `uvicorn thithi.privacy.api:app --port 8090` (cần `PRIVACY_VAULT_DB`, `PRIVACY_VAULT_KEY`, `PRIVACY_SERVICE_TOKEN`).
 
 Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_servers.erp` (streamable-http).
 
@@ -61,6 +75,6 @@ Mỗi MCP server cũng chạy độc lập được: `python -m thithi.mcp_serve
 
 - [ ] Xác thực OIDC thay cho header `X-User-Id`.
 - [ ] Orchestrator gọi MCP server qua MCP client (streamable-http) thay vì gọi hàm trong cùng tiến trình.
-- [ ] `TokenVault` và trạng thái yêu cầu lưu Redis/PostgreSQL thay vì bộ nhớ.
+- [ ] Trạng thái yêu cầu lưu Redis/PostgreSQL thay vì bộ nhớ.
 - [ ] Backend ERP thật cho `mcp-erp`; Qdrant/pgvector + embedding local cho `mcp-docs`.
 - [ ] Bộ 200 mẫu PII của công ty để nghiệm thu Gateway.

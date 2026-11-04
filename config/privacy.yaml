@@ -1,0 +1,10 @@
+# Cấu hình Privacy Vault (chạy trên máy AI local).
+# mode: token     -> <KH_01>, <SDT_02>  (mặc định, an toàn nhất)
+#       pseudonym -> đổi sang giá trị giả trông như thật cho các loại trong pseudonym_kinds;
+#                    các loại còn lại (số tiền, CCCD, STK, MST) vẫn dùng token.
+mode: token
+pseudonym_kinds: [NGUOI, CTY, KH, NCC, DIA_CHI, EMAIL, SDT]
+# Ánh xạ tự xoá sau thời gian này; sau đó không tái tạo được nữa.
+ttl_hours: 24
+# Bắt buộc NER bằng LLM local. Chỉ môi trường dev (THITHI_ENV=dev, THITHI_NER=off) được bỏ qua.
+require_ner: true
