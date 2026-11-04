@@ -1,0 +1,8 @@
+# WF1: hỏi đáp tri thức nội bộ, chạy thuần local, không gọi Claude.
+id: knowledge
+name: Agent Tri thức nội bộ
+allowed_roles: [nhan_vien, finance, hanh_chinh, ban_giam_doc]
+max_label: noi_bo
+tools:
+  - mcp-docs.search
+  - mcp-local-llm.answer_with_sources

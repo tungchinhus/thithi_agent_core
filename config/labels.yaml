@@ -1,0 +1,13 @@
+# Nguồn dữ liệu -> nhãn. Nguồn không khớp dòng nào nhận default_label.
+# allow_cloud: raw (gửi nguyên văn) | masked (che PII trước khi gửi) | never (không rời mạng nội bộ)
+sources:
+  user.request:          { label: noi_bo,  allow_cloud: masked }
+  erp.revenue_summary:   { label: noi_bo,  allow_cloud: masked }
+  erp.inventory:         { label: noi_bo,  allow_cloud: masked }
+  erp.ar_aging:          { label: mat,     allow_cloud: masked }
+  docs.quy_che/*:        { label: noi_bo,  allow_cloud: masked }
+  docs.hop_dong/*:       { label: mat,     allow_cloud: masked }
+  docs.public/*:         { label: cong_khai, allow_cloud: raw }
+  hrm.*:                 { label: toi_mat, allow_cloud: never }
+  bank.*:                { label: toi_mat, allow_cloud: never }
+default_label: mat
